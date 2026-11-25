@@ -1,0 +1,14 @@
+{
+  "name": "cli-task-tracker",
+  "version": "1.0.0",
+  "description": "Интерактивный CLI Task Tracker (Node.js + SQLite)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@inquirer/prompts": "^8.8.1",
+    "better-sqlite3": "^13.2.0"
+  }
+}
