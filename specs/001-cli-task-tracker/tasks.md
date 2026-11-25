@@ -79,7 +79,7 @@ Single project (plan.md): модули в корне репозитория — 
 
 ### Implementation for User Story 2
 
-- [x] T011 [US2] Implement `listTasks()` in `db.js`: задачи с агрегированным списком тегов (LEFT JOIN task_tags/tags, group by task, теги отсортированы по имени), TaskView `{id, title, is_completed, created_at, tags[]}` (contracts/db-api.md, data-model.md)
+- [x] T011 [US2] Implement `listTasks()` in `db.js`: задачи с агрегированным списком тегов (LEFT JOIN task_tags/tags, group by task, теги отсортированы по имени), TaskView `{id, title, is_completed, created_at, tags[]}`; порядок списка по FR-006 (Clarifications): активные первыми, внутри группы новые сверху — `ORDER BY is_completed ASC, created_at DESC, id DESC` (contracts/db-api.md, data-model.md)
 - [x] T012 [US2] Implement task-list rendering in `ui.js`: формат `[ ]`/`[x]` + название + теги серым `#имя`, выполненные — зелёным/приглушённым; длинные названия не ломают вывод (перенос/усечение при показе — data-model.md edge case); пустой список → `Список задач пуст. Создайте первую задачу!` → возврат в меню (contracts/ui.md, FR-006, FR-011)
 - [x] T013 [US2] Wire «Просмотреть все задачи» in `index.js` to T012 rendering со стрелочным выбором задачи (select) и пунктом «← Назад в меню»; выбор задачи пока возвращает в меню (заполнится в US4) (contracts/ui.md, FR-010)
 

@@ -20,8 +20,8 @@ CommonJS-модули (без этапа сборки).
 **Primary Dependencies**:
 - `better-sqlite3` — синхронный SQLite-драйвер (единственная нативная зависимость);
 - `@inquirer/prompts` — интерактивные промпты (select, input, confirm);
-- `chalk` — цветовой вывод консоли (если решим не использовать встроенный
-  `util.styleText`; см. research.md, решение D3).
+- цвета — встроенный `util.styleText` (Node 20.12+): запасной вариант из research.md D3,
+  применён вместо `chalk`, поскольку chalk@6 ESM-only и несовместим с CommonJS-проектом.
 
 **Storage**: локальный файл SQLite `tasks.db` в корне проекта (в `.gitignore`);
 схема `tasks`, `tags`, `task_tags` создаётся автоматически при первом запуске.
