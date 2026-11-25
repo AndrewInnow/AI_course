@@ -145,6 +145,12 @@ async function main() {
 }
 
 main().catch((error) => {
+  // Ctrl+C во время интерактивного промпта @inquirer приходит как ExitPromptError —
+  // это штатное прерывание, а не сбой: завершаемся тихо с кодом 0 (FR-012, US5-3).
+  if (error && (error.name === 'ExitPromptError' || /force closed/i.test(error.message || ''))) {
+    shutdown();
+  }
   ui.warn(`Ошибка: ${error.message}`);
+  process.exitCode = 1;
   shutdown();
 });
