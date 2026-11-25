@@ -60,6 +60,13 @@ async function handleTaskActions(task) {
     case 'edit':
       await handleEditTask(fresh);
       return undefined;
+    case 'priority': {
+      const priority = await ui.promptPriority(fresh.priority || 'medium');
+      if (priority === null) return undefined;
+      db.updateTask(fresh.id, { priority });
+      ui.success('Приоритет обновлён');
+      return undefined;
+    }
     case 'delete': {
       if (await ui.confirmDelete(fresh)) {
         db.deleteTask(fresh.id);
@@ -115,7 +122,7 @@ async function handleAddTask() {
   const existingTags = db.listUsedTags().map((t) => t.name);
   const form = await ui.showAddTaskForm(existingTags);
   if (!form) return;
-  db.createTask(form.title, form.tagNames);
+  db.createTask(form.title, form.tagNames, form.priority || 'medium');
   ui.success('Задача добавлена');
 }
 

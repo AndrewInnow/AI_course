@@ -35,17 +35,25 @@ function info(message) {
   console.log(message);
 }
 
+/** Символьная метка приоритета (research.md R4, FR-105). */
+const PRIORITY_MARK = { high: '!!!', medium: '!!', low: '!' };
+
 /**
- * Отрисовать строку задачи: [ ]/[x] Название #тег1 #тег2 (FR-006).
- * @param {{title: string, is_completed: number, tags: string[]}} task
+ * Отрисовать строку задачи: [ ]/[x] !!! Название #тег1 #тег2 (FR-006, FR-105).
+ * Метка приоритета только у активных задач.
+ * @param {{title: string, is_completed: number, priority?: string, tags: string[]}} task
  */
 function renderTaskLine(task) {
   const mark = task.is_completed ? '[x]' : '[ ]';
   const title = task.is_completed ? green(task.title) : task.title;
+  const prio =
+    !task.is_completed && task.priority
+      ? `${PRIORITY_MARK[task.priority] || '!!'} `
+      : '';
   const tags = task.tags.length
     ? ` ${gray(task.tags.map((t) => `#${t}`).join(' '))}`
     : '';
-  return `${mark} ${title}${tags}`;
+  return `${mark} ${prio}${title}${tags}`;
 }
 
 /** Валидатор названия: непустое после обрезки пробелов (FR-002). */
@@ -84,6 +92,7 @@ async function showTaskList(title, tasks) {
     info('Список задач пуст. Создайте первую задачу!');
     return null;
   }
+  info('Приоритет: !!! высокий · !! средний · ! низкий');
   const choices = tasks.map((t) => ({ name: renderTaskLine(t), value: t }));
   choices.push({ name: '← Назад в меню', value: null });
   return select({ message: 'Задачи:', choices, pageSize: 15 });
@@ -105,7 +114,7 @@ async function showTagFilterMenu(tags) {
 }
 
 /**
- * Форма добавления задачи (экран 3). Возвращает { title, tagNames } или null.
+ * Форма добавления задачи (экран 3). Возвращает { title, tagNames, priority } или null.
  * @param {string[]} existingTags имена существующих тегов
  */
 async function showAddTaskForm(existingTags) {
@@ -136,7 +145,17 @@ async function showAddTaskForm(existingTags) {
     tagNames.push(...raw.split(',').map((t) => t.trim()).filter(Boolean));
   }
 
-  return { title, tagNames };
+  const priority = await select({
+    message: 'Приоритет:',
+    choices: [
+      { name: 'Средний (!!) — по умолчанию', value: 'medium' },
+      { name: 'Высокий (!!!)', value: 'high' },
+      { name: 'Низкий (!)', value: 'low' },
+    ],
+    default: 'medium',
+  });
+
+  return { title, tagNames, priority };
 }
 
 /**
@@ -149,8 +168,27 @@ async function showTaskActions(task) {
     choices: [
       { name: task.is_completed ? 'Переключить статус (Сделать не выполненной)' : 'Переключить статус (Выполнено/Не выполнено)', value: 'toggle' },
       { name: 'Редактировать', value: 'edit' },
+      { name: 'Изменить приоритет', value: 'priority' },
       { name: red('Удалить'), value: 'delete' },
       { name: '← Назад к списку', value: null },
+    ],
+  });
+}
+
+/**
+ * Выбор нового приоритета. Возвращает 'high'|'medium'|'low' или null (назад).
+ * @param {string} currentPriority текущий приоритет задачи
+ */
+async function promptPriority(currentPriority) {
+  const mark = (value, label) =>
+    value === currentPriority ? `${label} (сейчас)` : label;
+  return select({
+    message: 'Новый приоритет:',
+    choices: [
+      { name: mark('high', 'Высокий (!!!)'), value: 'high' },
+      { name: mark('medium', 'Средний (!!)'), value: 'medium' },
+      { name: mark('low', 'Низкий (!)'), value: 'low' },
+      { name: '← Назад', value: null },
     ],
   });
 }
@@ -223,6 +261,7 @@ module.exports = {
   showTagFilterMenu,
   showAddTaskForm,
   showTaskActions,
+  promptPriority,
   showEditMenu,
   promptNewTitle,
   promptTags,

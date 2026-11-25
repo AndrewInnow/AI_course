@@ -11,6 +11,15 @@ const Database = require('better-sqlite3');
 
 let db = null;
 
+const PRIORITIES = new Set(['high', 'medium', 'low']);
+const PRIORITY_ORDER = `
+  CASE t.priority
+    WHEN 'high' THEN 0
+    WHEN 'medium' THEN 1
+    ELSE 2
+  END ASC
+`;
+
 /**
  * Инициализация БД: создание файла, схемы и включение внешних ключей.
  * Идемпотентно: повторный вызов на существующей базе ничего не меняет.
@@ -29,7 +38,9 @@ function initDb(dbPath) {
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       title         TEXT    NOT NULL,
       is_completed  INTEGER NOT NULL DEFAULT 0,
-      created_at    TEXT    NOT NULL
+      created_at    TEXT    NOT NULL,
+      priority      TEXT    NOT NULL DEFAULT 'medium'
+                    CHECK (priority IN ('high', 'medium', 'low'))
     );
 
     CREATE TABLE IF NOT EXISTS tags (
@@ -45,6 +56,15 @@ function initDb(dbPath) {
       FOREIGN KEY (tag_id)  REFERENCES tags(id)  ON DELETE CASCADE
     );
   `);
+
+  // Миграция существующих БД из MVP (research.md R2, FR-108).
+  // SQLite не позволяет добавить CHECK через ALTER TABLE ADD COLUMN —
+  // инвариант приоритета дополнительно обеспечивается validatePriority().
+  const columns = db.prepare('PRAGMA table_info(tasks)').all();
+  const hasPriority = columns.some((c) => c.name === 'priority');
+  if (!hasPriority) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'medium'`);
+  }
 }
 
 /** Корректно закрыть соединение с SQLite (FR-012). */
@@ -92,6 +112,15 @@ function validateTitle(title) {
   return cleaned;
 }
 
+/** Валидация приоритета: ровно одно из high|medium|low (FR-101). */
+function validatePriority(priority) {
+  const value = String(priority || '').trim();
+  if (!PRIORITIES.has(value)) {
+    throw new Error('Недопустимый приоритет');
+  }
+  return value;
+}
+
 /** Привязать теги к задаче; создать теги, которых ещё нет. Внутри транзакции вызывающей функции. */
 function attachTags(taskId, tagNames) {
   const insertTag = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
@@ -105,19 +134,23 @@ function attachTags(taskId, tagNames) {
 }
 
 /**
- * Создать задачу с тегами.
+ * Создать задачу с тегами и приоритетом.
  * @param {string} title непустое название
  * @param {string[]} [tagNames] имена тегов (опционально)
+ * @param {string} [priority='medium'] приоритет (high|medium|low)
  * @returns {{id: number}} идентификатор созданной задачи
  */
-function createTask(title, tagNames) {
+function createTask(title, tagNames, priority = 'medium') {
   ensureDb();
   const cleaned = validateTitle(title);
+  const prio = validatePriority(priority);
   const tx = db.transaction(() => {
     const createdAt = new Date().toISOString();
     const info = db
-      .prepare('INSERT INTO tasks (title, is_completed, created_at) VALUES (?, 0, ?)')
-      .run(cleaned, createdAt);
+      .prepare(
+        'INSERT INTO tasks (title, is_completed, created_at, priority) VALUES (?, 0, ?, ?)'
+      )
+      .run(cleaned, createdAt, prio);
     const taskId = info.lastInsertRowid;
     attachTags(taskId, tagNames);
     return taskId;
@@ -132,13 +165,14 @@ function toTaskView(row) {
     title: row.title,
     is_completed: row.is_completed,
     created_at: row.created_at,
+    priority: row.priority || 'medium',
     tags: row.tag_names ? row.tag_names.split(',').filter(Boolean) : [],
   };
 }
 
 /** Общий SELECT для списков задач с агрегированными тегами. */
 const TASKS_SELECT = `
-  SELECT t.id, t.title, t.is_completed, t.created_at,
+  SELECT t.id, t.title, t.is_completed, t.created_at, t.priority,
          COALESCE(GROUP_CONCAT(tg.name), '') AS tag_names
   FROM tasks t
   LEFT JOIN task_tags tt ON tt.task_id = t.id
@@ -146,15 +180,15 @@ const TASKS_SELECT = `
 `;
 
 /**
- * Список всех задач: активные первыми, затем новые сверху.
- * @returns {Array<{id, title, is_completed, created_at, tags: string[]}>}
+ * Список всех задач: активные первыми, внутри — по приоритету, затем новые сверху.
+ * @returns {Array<{id, title, is_completed, created_at, priority, tags: string[]}>}
  */
 function listTasks() {
   ensureDb();
   const rows = db
     .prepare(`${TASKS_SELECT}
       GROUP BY t.id
-      ORDER BY t.is_completed ASC, t.created_at DESC, t.id DESC`)
+      ORDER BY t.is_completed ASC, ${PRIORITY_ORDER}, t.created_at DESC, t.id DESC`)
     .all();
   return rows.map(toTaskView);
 }
@@ -171,7 +205,7 @@ function listTasksByTag(tagName) {
       JOIN tags ftg      ON ftg.id = ftt.tag_id
       WHERE ftg.name = ? COLLATE NOCASE
       GROUP BY t.id
-      ORDER BY t.is_completed ASC, t.created_at DESC, t.id DESC`)
+      ORDER BY t.is_completed ASC, ${PRIORITY_ORDER}, t.created_at DESC, t.id DESC`)
     .all(String(tagName || '').trim());
   return rows.map(toTaskView);
 }
@@ -204,10 +238,10 @@ function toggleTask(id) {
 }
 
 /**
- * Обновить задачу: только переданные поля (title и/или tagNames).
+ * Обновить задачу: только переданные поля (title, tagNames и/или priority).
  * Набор тегов заменяется целиком.
  */
-function updateTask(id, { title, tagNames } = {}) {
+function updateTask(id, { title, tagNames, priority } = {}) {
   ensureDb();
   const tx = db.transaction(() => {
     const row = db.prepare('SELECT id FROM tasks WHERE id = ?').get(id);
@@ -219,6 +253,10 @@ function updateTask(id, { title, tagNames } = {}) {
     if (tagNames !== undefined) {
       db.prepare('DELETE FROM task_tags WHERE task_id = ?').run(id);
       attachTags(id, tagNames);
+    }
+    if (priority !== undefined) {
+      const prio = validatePriority(priority);
+      db.prepare('UPDATE tasks SET priority = ? WHERE id = ?').run(prio, id);
     }
   });
   tx();
